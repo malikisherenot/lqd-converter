@@ -178,8 +178,8 @@
           var reps = 1 << ((h >> 3) & 31);
           var states = [];
           for (i = 0; i < len; i++) { states.push(u(p, bs)); p += bs; }
-          for (var r = 0; r < reps; r++) {
-            for (i = 0; i < states.length; i++) emit(states[i]);
+          for (var r = 0; r < reps && acts.length < count; r++) {
+            for (i = 0; i < states.length && acts.length < count; i++) emit(states[i]);
           }
         }
       } else if (id === 2) {
@@ -197,10 +197,63 @@
     return acts;
   }
 
+    function parseSlcV2(bytes) {
+    var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    var n = bytes.length, p = 4;
+    function u(pos, len) {
+      if (pos + len > n) throw new Error("slc v2 file is truncated or corrupted.");
+      var v = 0, mul = 1;
+      for (var i = 0; i < len; i++) { v += bytes[pos + i] * mul; mul *= 256; }
+      return v;
+    }
+    if (n < 35) throw new Error("File is too small to be an .slc file.");
+    var tps = dv.getFloat64(p, true);
+    p += 8;
+    var metaSize = u(p, 8);
+    p += 8 + metaSize;
+    p += 8;
+    var blobCount = u(p, 8);
+    p += 8;
+    var blobs = [];
+    for (var i = 0; i < blobCount; i++) {
+      blobs.push({ size: u(p, 8), len: u(p + 16, 8) });
+      p += 24;
+    }
+    var acts = [], frame = 0;
+    for (i = 0; i < blobs.length; i++) {
+      var b = blobs[i];
+      if (b.size < 1 || b.size > 8) throw new Error("Invalid blob size in .slc v2 file.");
+      for (var j = 0; j < b.len; j++) {
+        var st = u(p, b.size);
+        p += b.size;
+        var low = st % 32;
+        frame += Math.floor(st / 32);
+        var button = (low >> 2) & 7;
+        if (button === 7) {
+          if (p + 8 > n) throw new Error("slc v2 file is truncated or corrupted.");
+          p += 8;
+        }
+        if (button >= 1 && button <= 3) {
+          acts.push({ frame: frame, button: button, holding: (low & 1) === 1, p2: ((low >> 1) & 1) === 1 });
+        } else if (button !== 0) {
+          acts.push({ frame: frame, button: 0, holding: false, p2: false });
+        }
+      }
+    }
+    return { tps: tps, actions: acts };
+  }
+
   function parseSlc(bytes) {
+    if (bytes.length >= 4 && bytes[0] === 0x53 && bytes[1] === 0x49 && bytes[2] === 0x4C && bytes[3] === 0x4C) {
+      return parseSlcV2(bytes);
+    }
+    return parseSlcV3(bytes);
+  }
+
+  function parseSlcV3(bytes) {
     if (bytes.length < 11) throw new Error("File is too small to be an .slc file.");
     for (var i = 0; i < 8; i++) {
-      if (bytes[i] !== HEADER[i]) throw new Error("Not an slc v3 file (missing SLC3RPLY header).");
+      if (bytes[i] !== HEADER[i]) throw new Error("Not a valid .slc file (unknown header).");
     }
     var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (dv.getUint16(8, true) !== 64) throw new Error("Unsupported slc metadata size.");

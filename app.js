@@ -1,18 +1,18 @@
 var input = document.getElementById("file");
-var status = document.getElementById("status");
+var info = document.getElementById("info");
 var link = document.getElementById("download");
 var url = null;
 
 input.addEventListener("change", function () {
   var file = input.files[0];
   link.hidden = true;
-  status.className = "";
+  info.className = "";
   if (!file) return;
 
   var ext = (file.name.match(/\.([^.]*)$/) || [, ""])[1].toLowerCase();
   if (ext !== "lqd" && ext !== "slc") {
-    status.className = "error";
-    status.textContent = "Please choose a .lqd or .slc file.";
+    info.className = "error";
+    info.textContent = "Please choose a .lqd or .slc file.";
     return;
   }
 
@@ -33,10 +33,10 @@ input.addEventListener("change", function () {
 
       var msg = "Converted " + result.count + " inputs (" + result.tps + " TPS).";
       if (result.skipped) msg += " Skipped " + result.skipped + " non-input actions (restart/death/TPS/bugpoint).";
-      status.textContent = msg;
+      info.textContent = msg;
     } catch (err) {
-      status.className = "error";
-      status.textContent = err.message;
+      info.className = "error";
+      info.textContent = err.message;
     }
   });
 });
