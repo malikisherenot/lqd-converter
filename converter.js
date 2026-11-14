@@ -22,8 +22,7 @@
     arr.push(v);
   }
 
-  async function parseLqd(bytes, log) {
-    log("Reading .lqd header");
+  async function parseLqd(bytes) {
     if (bytes.length < 2 || bytes[0] !== 0x4C) {
       throw new Error("Not a .lqd file (missing 'L' magic byte).");
     }
@@ -49,7 +48,6 @@
       if (!t) throw new Error("Invalid TPS in .lqd header.");
       tps = t;
     }
-    log("Format version 1, " + tps + " TPS");
 
     var actions = [];
     var held = [false, false];
@@ -83,11 +81,9 @@
         add(button, press, p2);
       }
       if (++events % STEP === 0) {
-        log("Parsed " + actions.length + " inputs (" + Math.round(pos / bytes.length * 100) + "%)");
         await yieldUI();
       }
     }
-    log("Parsed " + actions.length + " inputs, last frame " + frame);
     return { tps: tps, actions: actions };
   }
 
@@ -98,7 +94,7 @@
     return 3;
   }
 
-  async function buildActionAtomData(actions, log) {
+  async function buildActionAtomData(actions) {
     var out = [];
     pushLE(out, actions.length, 8);
 
@@ -110,7 +106,7 @@
       sizes[i] = deltaSizeFor(deltas[i]);
     }
 
-    var sections = 0, ticks = 0;
+    var ticks = 0;
     i = 0;
     while (i < n) {
       var run = 1;
@@ -126,20 +122,16 @@
         pushLE(out, state, byteSize);
       }
       i += count;
-      sections++;
       ticks += count;
       if (ticks >= STEP) {
         ticks = 0;
-        log("Writing inputs (" + Math.round(i / n * 100) + "%)");
         await yieldUI();
       }
     }
-    log("Wrote " + sections + " sections");
     return out;
   }
 
-  async function buildSlc(tps, actions, log) {
-    log("Writing .slc v3 header");
+  async function buildSlc(tps, actions) {
     var out = HEADER.slice();
     pushLE(out, 64, 2);
 
@@ -152,24 +144,22 @@
     pushLE(out, 0, 4);
     for (k = 0; k < 36; k++) out.push(0);
 
-    var data = await buildActionAtomData(actions, log);
+    var data = await buildActionAtomData(actions);
     pushLE(out, 1, 4);
     pushLE(out, data.length, 8);
     for (k = 0; k < data.length; k++) out.push(data[k]);
 
     out.push(FOOTER);
-    log("Finished, " + out.length + " bytes");
     return new Uint8Array(out);
   }
 
-  async function lqdToSlc(bytes, log) {
-    log = log || function () {};
-    var lqd = await parseLqd(bytes, log);
-    var slc = await buildSlc(lqd.tps, lqd.actions, log);
+  async function lqdToSlc(bytes) {
+    var lqd = await parseLqd(bytes);
+    var slc = await buildSlc(lqd.tps, lqd.actions);
     return { slc: slc, tps: lqd.tps, count: lqd.actions.length };
   }
 
-  async function readActionAtom(bytes, p, stop, log) {
+  async function readActionAtom(bytes, p, stop) {
     function u(pos, n) {
       var v = 0, mul = 1;
       for (var i = 0; i < n; i++) { v += bytes[pos + i] * mul; mul *= 256; }
@@ -182,11 +172,8 @@
     need(8);
     var count = u(p, 8);
     p += 8;
-    var start = p;
-    log("Action atom declares " + count + " inputs");
 
     var acts = [], last = 0, ticks = 0;
-    var kinds = { input: 0, repeat: 0, special: 0 };
     function add(button, holding, p2) {
       acts.push({ frame: last, button: button, holding: holding, p2: p2 });
     }
@@ -199,7 +186,6 @@
     }
     async function progress() {
       if (++ticks % STEP === 0) {
-        log("Decoded " + acts.length + " / " + count + " inputs (" + Math.round((p - start) / Math.max(1, stop - start) * 100) + "%)");
         await yieldUI();
       }
     }
@@ -215,10 +201,8 @@
         var len = 1 << ((h >> 8) & 15);
         need(len * bs);
         if (id === 0) {
-          kinds.input++;
           for (var i = 0; i < len; i++) { emit(u(p, bs)); p += bs; await progress(); }
         } else {
-          kinds.repeat++;
           var reps = Math.pow(2, (h >> 3) & 31);
           var states = [];
           for (i = 0; i < len; i++) { states.push(u(p, bs)); p += bs; }
@@ -227,7 +211,6 @@
           }
         }
       } else if (id === 2) {
-        kinds.special++;
         var type = (h >> 10) & 15;
         var sbs = 1 << ((h >> 8) & 3);
         need(sbs);
@@ -240,13 +223,10 @@
         throw new Error("Unknown section type in .slc file.");
       }
     }
-    log("Sections: " + kinds.input + " input, " + kinds.repeat + " repeat, " + kinds.special + " special");
-    if (acts.length < count) log("Warning: file ended with " + acts.length + " of " + count + " inputs");
     return acts;
   }
 
-  async function parseSlcV3(bytes, log) {
-    log("Detected slc v3");
+  async function parseSlcV3(bytes) {
     if (bytes.length < 11) throw new Error("File is too small to be an .slc file.");
     for (var i = 0; i < 8; i++) {
       if (bytes[i] !== HEADER[i]) throw new Error("Not a valid .slc file (unknown header).");
@@ -254,7 +234,6 @@
     var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (dv.getUint16(8, true) !== 64) throw new Error("Unsupported slc metadata size.");
     var tps = dv.getFloat64(10, true);
-    log("Metadata read, " + tps + " TPS");
     var end = bytes.length - 1;
     if (bytes[end] !== FOOTER) throw new Error("Invalid slc footer (file may be truncated).");
 
@@ -265,17 +244,15 @@
       var hi = dv.getUint32(p + 8, true) & 0xFFFFFF;
       p += 12;
       var size = hi * 4294967296 + lo;
-      log("Atom id " + id + ", " + size + " bytes");
       if (p + size > end) throw new Error("Atom size exceeds file size.");
-      if (id === 1 && !actions) actions = await readActionAtom(bytes, p, p + size, log);
+      if (id === 1 && !actions) actions = await readActionAtom(bytes, p, p + size);
       p += size;
     }
     if (!actions) throw new Error("No action atom found in .slc file.");
     return { tps: tps, actions: actions };
   }
 
-  async function parseSlcV2(bytes, log) {
-    log("Detected slc v2");
+  async function parseSlcV2(bytes) {
     var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     var n = bytes.length, p = 4;
     function u(pos, len) {
@@ -289,11 +266,9 @@
     p += 8;
     var metaSize = u(p, 8);
     p += 8 + metaSize;
-    var length = u(p, 8);
     p += 8;
     var blobCount = u(p, 8);
     p += 8;
-    log("Metadata read, " + tps + " TPS, " + length + " inputs, " + blobCount + " blobs");
     var blobs = [];
     for (var i = 0; i < blobCount; i++) {
       blobs.push({ size: u(p, 8), len: u(p + 16, 8) });
@@ -319,7 +294,6 @@
           acts.push({ frame: frame, button: 0, holding: false, p2: false });
         }
         if (++ticks % STEP === 0) {
-          log("Decoded " + acts.length + " inputs (" + Math.round(p / n * 100) + "%)");
           await yieldUI();
         }
       }
@@ -327,23 +301,21 @@
     return { tps: tps, actions: acts };
   }
 
-  async function parseSlc(bytes, log) {
+  async function parseSlc(bytes) {
     if (bytes.length >= 4 && bytes[0] === 0x53 && bytes[1] === 0x49 && bytes[2] === 0x4C && bytes[3] === 0x4C) {
-      return parseSlcV2(bytes, log);
+      return parseSlcV2(bytes);
     }
-    return parseSlcV3(bytes, log);
+    return parseSlcV3(bytes);
   }
 
-  async function buildLqd(tps, all, log) {
+  async function buildLqd(tps, all) {
     var actions = all.filter(function (a) { return a.button > 0; });
     var skipped = all.length - actions.length;
-    log("Decoded " + all.length + " actions, " + skipped + " are not player inputs");
 
     var tpsInt = Math.round(tps);
     var custom = tpsInt !== 240 && tpsInt > 0;
     var out = [0x4C, (1 << 1) | (custom ? 1 : 0)];
     if (custom) pushVarint(out, tpsInt);
-    log("Writing .lqd header, " + (custom ? tpsInt : 240) + " TPS");
 
     var held = [false, false], prev = 0, i = 0, n = actions.length, ticks = 0;
     function ev(frame, code) {
@@ -372,18 +344,15 @@
         i++;
       }
       if (++ticks % STEP === 0) {
-        log("Writing events (" + Math.round(i / n * 100) + "%)");
         await yieldUI();
       }
     }
-    log("Finished, " + out.length + " bytes");
     return { lqd: new Uint8Array(out), skipped: skipped, count: n };
   }
 
-  async function slcToLqd(bytes, log) {
-    log = log || function () {};
-    var slc = await parseSlc(bytes, log);
-    var r = await buildLqd(slc.tps, slc.actions, log);
+  async function slcToLqd(bytes) {
+    var slc = await parseSlc(bytes);
+    var r = await buildLqd(slc.tps, slc.actions);
     return { lqd: r.lqd, tps: Math.round(slc.tps), count: r.count, skipped: r.skipped };
   }
 
