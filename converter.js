@@ -1,6 +1,6 @@
-// .lqd (Liquid v1) -> .slc (slc v3) converter. Pure logic, no DOM.
+// the literal converter (⁠o⁠´⁠･⁠_⁠･⁠)⁠っ
 (function (root) {
-  var HEADER = [0x53, 0x4C, 0x43, 0x33, 0x52, 0x50, 0x4C, 0x59]; // "SLC3RPLY"
+  var HEADER = [0x53, 0x4C, 0x43, 0x33, 0x52, 0x50, 0x4C, 0x59]; 
   var FOOTER = 0xCC;
 
   function parseLqd(bytes) {
@@ -97,7 +97,7 @@
       var count = 1, exp = 0;
       while (count * 2 <= run) { count *= 2; exp++; }
 
-      pushLE(out, (exp << 8) | (sizes[i] << 12), 2); // Input section header
+      pushLE(out, (exp << 8) | (sizes[i] << 12), 2); 
       var byteSize = 1 << sizes[i];
       for (var j = i; j < i + count; j++) {
         var a = actions[j];
@@ -111,21 +111,21 @@
 
   function buildSlc(tps, actions) {
     var out = HEADER.slice();
-    pushLE(out, 64, 2); // metadata size
+    pushLE(out, 64, 2); 
 
-    // Metadata (64 bytes): tps, seed, version, build, randomness algorithm, padding
+    // this wasnt annoying 
     var dv = new DataView(new ArrayBuffer(8));
     dv.setFloat64(0, tps, true);
     for (var k = 0; k < 8; k++) out.push(dv.getUint8(k));
-    pushLE(out, 0, 8);  // seed
-    pushLE(out, 2, 4);  // version
-    pushLE(out, 0, 4);  // build
-    pushLE(out, 0, 4);  // randomness algorithm
+    pushLE(out, 0, 8);  
+    pushLE(out, 2, 4);  
+    pushLE(out, 0, 4);  
+    pushLE(out, 0, 4);  
     for (k = 0; k < 36; k++) out.push(0);
 
     var data = buildActionAtomData(actions);
-    pushLE(out, 1, 4);            // atom id: Action
-    pushLE(out, data.length, 8);  // atom size
+    pushLE(out, 1, 4);            
+    pushLE(out, data.length, 8);  
     for (k = 0; k < data.length; k++) out.push(data[k]);
 
     out.push(FOOTER);
