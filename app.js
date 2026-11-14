@@ -9,15 +9,31 @@ input.addEventListener("change", function () {
   status.className = "";
   if (!file) return;
 
+  var ext = (file.name.match(/\.([^.]*)$/) || [, ""])[1].toLowerCase();
+  if (ext !== "lqd" && ext !== "slc") {
+    status.className = "error";
+    status.textContent = "Please choose a .lqd or .slc file.";
+    return;
+  }
+
   file.arrayBuffer().then(function (buf) {
     try {
-      var result = lqdToSlc(new Uint8Array(buf));
+      var bytes = new Uint8Array(buf);
+      var toSlc = ext === "lqd";
+      var result = toSlc ? lqdToSlc(bytes) : slcToLqd(bytes);
+      var out = toSlc ? result.slc : result.lqd;
+      var outExt = toSlc ? "slc" : "lqd";
+
       if (url) URL.revokeObjectURL(url);
-      url = URL.createObjectURL(new Blob([result.slc], { type: "application/octet-stream" }));
+      url = URL.createObjectURL(new Blob([out], { type: "application/octet-stream" }));
       link.href = url;
-      link.download = file.name.replace(/\.[^.]*$/, "") + ".slc";
+      link.download = file.name.replace(/\.[^.]*$/, "") + "." + outExt;
+      link.textContent = "Download ." + outExt;
       link.hidden = false;
-      status.textContent = "Converted " + result.count + " inputs (" + result.tps + " TPS).";
+
+      var msg = "Converted " + result.count + " inputs (" + result.tps + " TPS).";
+      if (result.skipped) msg += " Skipped " + result.skipped + " non-input actions (restart/death/TPS/bugpoint).";
+      status.textContent = msg;
     } catch (err) {
       status.className = "error";
       status.textContent = err.message;
